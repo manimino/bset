@@ -1,1 +1,1 @@
-from .subset import SubSet
+from .subset2d import SubSet

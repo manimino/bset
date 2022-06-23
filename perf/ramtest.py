@@ -27,7 +27,7 @@ def make_set(n=1):
 
 def make_smolset(n=1, thresh=0.5):
     s = SubSet()
-    s.load_thresh = thresh  # todo this doesn't work right because of the copy on resize thinger
+    s.load_factor = thresh  # todo this doesn't work right because of the copy on resize thinger
     ls = []
     for i in range(n):
         t = make_a_thing()
@@ -37,7 +37,7 @@ def make_smolset(n=1, thresh=0.5):
 
 
 def main():
-    for thresh in [10, 12]:
+    for thresh in [10, 20]:
         for exp in range(3, 7):
             n = 10**exp
             t0 = time.time()
