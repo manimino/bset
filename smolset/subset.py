@@ -1,3 +1,9 @@
+"""
+implements a fringe-shaped subset
+
+"""
+
+from smolset.constants import DTYPE_TO_ARRAY_TYPE
 from array import array
 
 SINGLE_VAL = True
@@ -5,7 +11,7 @@ SINGLE_VAL = True
 
 class SubSet:
 
-    def __init__(self, items=None, dtype='Q', nslots=1):
+    def __init__(self, items=None, dtype=DTYPE_TO_ARRAY_TYPE['uint64'], nslots=1, load_thresh=10):
         """
         A SubSet is a basic implementation of set.
         Added items are hashed modulo capacity to get a pos.
@@ -21,23 +27,25 @@ class SubSet:
             - self.single is ignored.
             - self.manager[pos] stores an array of all items at that pos.
         """
+        # TODO we're gonna keep a high load factor (like 100) so the "single" array can get axed prolly?
+        # TODO oh right, the multi level hash thing was to keep build times down, cool idea there
+        # TODO because the remake is kinda expensive right
+        # TODO rather have 1000 sub-sets of 1000 slots each than have 1 1M-slot set when rebuilding
         self.dtype = dtype
         self.nslots = nslots
         self.single = array(dtype, [0] * self.nslots)
         self.manager = [None] * self.nslots
         self.size = 0
-        for item in items:
-            self.add(item)
-
-    def _copy_from(self, other):
-        self.nslots = other.nslots
-        self.single = other.single
-        self.manager = other.manager
-        self.size = other.size
+        self.load_thresh = load_thresh
+        if items is not None:
+            for item in items:
+                self.add(item)
 
     def add(self, item):
-        print(self.single, self.manager)
-        print('adding', item)
+        #print(self.single, self.manager)
+        #print('adding', item)
+        if item in self:
+            return
         if self._full():
             self._expand()
         pos = hash(item) % self.nslots
@@ -53,8 +61,10 @@ class SubSet:
     def remove(self, item):
         pos = hash(item) % self.nslots
         if self.manager[pos] is None:
-            return False
+            raise KeyError(item)
         elif self.manager[pos] == SINGLE_VAL:
+            if self.single[pos] != item:
+                raise KeyError(item)
             self.manager[pos] = None
             self.size -= 1
         else:
@@ -66,6 +76,34 @@ class SubSet:
         if self._sparse():
             self._shrink()
 
+    def _copy_from(self, other):
+        self.nslots = other.nslots
+        self.single = other.single
+        self.manager = other.manager
+        self.size = other.size
+
+    def _full(self) -> bool:
+        return self.size / self.nslots > self.load_thresh
+
+    def _expand(self):
+        #print('expanding')
+        """Increase capacity. Rehashes all items."""
+        if self.nslots < 10000:
+            new_size = self.nslots * 10
+        else:
+            new_size = int(self.nslots * 2.5)
+        other = SubSet(self, self.dtype, new_size, self.load_thresh)
+        self._copy_from(other)
+
+    def _sparse(self):
+        return self.size / self.nslots < 0.05  # todo tune this
+
+    def _shrink(self):
+        #print('shrinking')
+        """Decrease capacity. Rehashes all items."""
+        other = SubSet(self, self.dtype, max(self.nslots // 10, 1))
+        self._copy_from(other)
+
     def __contains__(self, item):
         pos = hash(item) % self.nslots
         if self.manager[pos] is None:
@@ -75,28 +113,11 @@ class SubSet:
         else:
             return item in self.manager[pos]
 
-    def _full(self) -> bool:
-        return self.size > self.nslots / 2
-
-    def _expand(self):
-        print('expanding')
-        """Increase capacity. Rehashes all items."""
-        other = SubSet(self, self.dtype, self.nslots * 10)
-        self._copy_from(other)
-
-    def _sparse(self):
-        return self.size < self.nslots / 100
-
-    def _shrink(self):
-        print('shrinking')
-        """Decrease capacity. Rehashes all items."""
-        other = SubSet(self.dtype, self.nslots // 10)
-        for i in self:
-            other.add(i)
-        self._copy_from(other)
-
     def __iter__(self):
         return SubSetIterator(self)
+
+    def __len__(self):
+        return self.size
 
 
 class SubSetIterator:
@@ -130,7 +151,12 @@ class SubSetIterator:
 
 def main():
     import random
-    ss = SubSet(int(random.random() * 999) for _ in range(50))
-    print(list(ss))
+    ss = SubSet(int(random.random() * 10) for _ in range(10))
+    #print('======== FULL ========')
+    #print(list(ss))
+    for item in list(ss):
+        ss.remove(item)
+    #print('======= EMPTY =========')
+    #print('remaining:', list(ss))
 
 main()
