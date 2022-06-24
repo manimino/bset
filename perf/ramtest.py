@@ -1,4 +1,4 @@
-from bset.typedset_linear_probe import TypedSet
+from bset.typedset_chaining import TypedSet
 from bset.dtypes import INT64_TYPE
 
 from array import array
@@ -42,7 +42,7 @@ def main():
     for exp in range(3, 7):
         n = 10**exp
         t0 = time.time()
-        v, junk1 = make_bset(n, load_factor=0.4)
+        v, junk1 = make_bset(n, load_factor=16)
         t1 = time.time()
         s, junk2 = make_set(n)
         t2 = time.time()
@@ -65,7 +65,6 @@ def main():
             lookies.add(i)
             if len(lookies) > 100:
                 break
-
 
         b = array('Q', [0]*len(s))
         f = bitarray([True] * len(s))

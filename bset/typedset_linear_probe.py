@@ -1,9 +1,9 @@
 """
-implements a 1D array set. uses linear probing on collision.
+implements a 1D array set. Uses linear probing on collision.
 
-This performs so badly.
-If you constrain the probe length to, say, <10, the load factor will be dreadful.
+This performs so much worse than chaining.
 If you constrain by load factor and set it high, you'll see slow lookups.
+If you constrain by max probe length instead, the load factor will be unusably low. (dumb idea anyway, but I tried it.)
 
 @ load factor of 0.5, got:
  === 1000000 items ===
@@ -12,29 +12,34 @@ ratio 3.847x more RAM efficient, so that's nice
 capacity 2097152
 fillrate 0.477
 
-# Cutting off ALL linear probing and giving incorrect results still results in a slowdown:
+# If I cut off ALL probing, it's still slower than a set.
  === 1000000 items ===
 lookup slow: 4.0
 ratio 1.924
 capacity 4194304
 fillrate 0.238
 
-# But that's not true of just a function that checks dummy arrays of the appropriate size, so maybe it's a
-# class method slowdown thing, like 10x worth.
+Doing the same experiment on a standalone function, I get a 10x speedup or better. Class methods may just
+be really slow.
 
+# Linear probing just isn't a great algorithm.
+# Maybe we are not seeing the cache efficiency here in Python that C would?
+
+# Clustering problems:
 Say your probe length is 10.
 You will get "runs" of filled space like:
 .........X....X.....XXXX.XXXX..X..X.........
                     ^^^^.^^^^ <-- this crap
-they build up little traps that will trip an _expand() call
-at a pretty low load factor. Can't imagine this getting past 50% load.
-No idea what those tutorials are talking about, their results defy probability.
-"clustering" is the word for this in the literature.
+they build up little traps that will increase probe length.
+at a pretty low load factor. Especially as load > 50%.
 
 yeah good blog post on this here
 http://www.idryman.org/blog/2017/07/04/learn-hash-table-the-hard-way/
 http://www.idryman.org/blog/2017/07/18/learn-hash-table-the-hard-way-2/
 http://www.idryman.org/blog/2017/08/06/learn-hash-table-the-hard-way-3/
+
+There are lots of hacks to diminish it, but they each cost during add, remove, or (worst) lookup.
+Robinhood, backsliding, cuckoo hashing, double hashing, quadratic probing... no free lunches.
 """
 from array import array
 from bitarray import bitarray
@@ -48,16 +53,15 @@ class TypedSet:
         A set of the given dtype.
         Added items are hashed modulo capacity to get a pos.
         """
-        # TODO oh right, the multi level hash thing was to keep build times down, cool idea there
-        # TODO because the remake is kinda expensive right
-        # TODO rather have 1000 sub-sets of 1000 slots each than have 1 1M-slot set when rebuilding
         self.dtype = dtype
         if dtype in [INT32_TYPE, INT64_TYPE]:
             self.arr = array(dtype, [0]*n_slots)
         else:
             self.arr = array(dtype, [0.0]*n_slots)
         self.full = bitarray([False]*n_slots)
+        self.deleted = bitarray([False]*n_slots)
         self.n_slots = n_slots
+        self.mask = n_slots-1
         self.size = 0
         self.load_factor = load_factor
         if items is not None:
@@ -65,70 +69,32 @@ class TypedSet:
                 self.add(item)
 
     def add(self, item):
-        if item in self:
+        pos, found = self._look_for_next_empty_or_item_when_adding(item)
+        if found:
             return
-        start = hash(item) % self.n_slots
-        p = 0
-        while True:
-            pos = (start + p) % self.n_slots
-            if not self.full[pos]:
-                self.full[pos] = True
-                self.arr[pos] = item
-                break
-            p += 1
+        self.full[pos] = True
+        self.arr[pos] = item
         self.size += 1
-        if self.size / self.n_slots > self.load_factor:
+        if self.size / self.n_slots >= self.load_factor:
             self._expand()
 
     def remove(self, item):
-        # TODO: This is broken / buggy. Probably no point in fixing it though
-        # since chaining is faster anyway
-        if item not in self:
+        delete_pos, found = self._look_for_next_empty_or_item(item)
+        if not found:
             raise KeyError(item)
-        start = hash(item) % self.n_slots
-        p = 0
-        while True:
-            pos = (p + start) % self.n_slots
-            if self.full[pos] and self.arr[pos] == item:
-                self.full[pos] = False
-                break
-            p += 1
-        # we just deleted from pos
-        # time to do backshift - check if something should go in this spot.
-        for i in range(1, self.n_slots):
-            pos2 = (pos+i) % self.n_slots
-            if not self.full[pos2]:
-                # we know nothing needs to be shifted backwards
-                break
-            if self.full[pos2]:
-                wanted_loc = hash(self.arr[pos2]) % self.n_slots  # where did that thing want to go?
-                # does moving it to this slot help it get closer to where it wanted to go?
-                # if pos2 == wanted_loc, it's right where it wants to be.
-                wanted_dist = 0
-                if wanted_loc < pos2:
-                    # it wants to be back from where it is. But how far? is pos a good spot for it?
-                    wanted_dist = pos2-wanted_loc
-                elif wanted_loc > pos2:
-                    # it wants to be forward from where it is. The only way that makes sense is
-                    # if we're wrapping around the end here.
-                    wanted_dist = self.n_slots-wanted_loc + pos2
-                if wanted_dist >= i:
-                    # moving this thing back will help it.
-                    # Backshift it.
-                    # Note that this can recurse.
-                    item = self.arr[pos2]
-                    self.remove(item)
-                    self.add(item)
-
+        self.full[delete_pos] = False
+        self.deleted[delete_pos] = True
         self.size -= 1
-        #if self._sparse():
-        #    self._shrink()
+        if self._sparse():
+            self._shrink()
 
     def _copy_from(self, other):
         self.full = other.full
         self.arr = other.arr
         self.size = other.size
         self.n_slots = other.n_slots
+        self.mask = other.mask
+        self.deleted = other.deleted
 
     def _expand(self):
         """Increase capacity. Rehashes all items."""
@@ -137,34 +103,76 @@ class TypedSet:
         self._copy_from(other)
 
     def _sparse(self):
-        return self.size / self.n_slots < 0.05  # todo tune this
+        return self.size / self.n_slots < 0.1  # arbitrary
 
     def _shrink(self):
         """Decrease capacity. Rehashes all items."""
-        other = TypedSet(self.dtype, items=self, n_slots=max(self.n_slots // 10, 1), load_factor=self.load_factor)
+        new_size = self.n_slots // 2
+        other = TypedSet(self.dtype, items=self, n_slots=new_size, load_factor=self.load_factor)
         self._copy_from(other)
 
-    def __contains__(self, item):
-        start = hash(item) % self.n_slots
-        if self.full[start] and self.arr[start] == item:
-            return True
-        return False
-        """
-        p = 0
+    def _look_for_next_empty_or_item(self, item=None) -> tuple[int, bool]:
+        # for contains() checks and removing
+        start = hash(item) & self.mask
+        if self.full[start] and self.arr[start] == item:  # item found
+            return start, True
+        if not self.full[start] and not self.deleted[start]:  # empty
+            return start, False
+        # start wasn't our item, and it's deleted or full. Let's probe.
+        p = start + 1
         while True:
-            pos = (start + p) % self.n_slots
-            if not self.full[pos]:
-                return False
-            elif self.arr[pos] == item:
-                return True
+            if p == self.n_slots:
+                p = 0
+            if self.full[p] and self.arr[p] == item:  # item found
+                return p, True
+            if not self.full[p] and not self.deleted[p]:  # empty (and never been deleted from)
+                return p, False
+            if p == start:
+                # prevent infinite loop. We scanned the whole list and didn't find the item.
+                return p, False
             p += 1
-        """
+
+    def _look_for_next_empty_or_item_when_adding(self, item=None) -> tuple[int, bool]:
+        # only used when adding. Same logic, just that it doesn't care about the 'deleted' flag.
+        start = hash(item) & self.mask
+        if self.full[start] and self.arr[start] == item:  # item found
+            return start, True
+        elif not self.full[start]:  # empty (insertable)
+            return start, False
+        # full and didn't match... so we start probing
+        p = start+1
+        while True:
+            if p == self.n_slots:
+                p = 0
+            if not self.full[p]:  # empty
+                return p, False
+            elif self.arr[p] == item:  # item found
+                return p, True
+            if p == start:
+                # prevent infinite loop
+                raise Exception("Insertion failed. Don't specify a load_factor above 1 next time.")
+            p += 1
+
+    def __contains__(self, item):
+        _, is_item = self._look_for_next_empty_or_item(item)
+        return is_item
 
     def __iter__(self):
         return TypedSetIterator(self)
 
     def __len__(self):
         return self.size
+
+    def __str__(self):
+        kd = []
+        for i in range(self.n_slots):
+            if self.full[i]:
+                kd.append('F')
+            elif self.deleted[i]:
+                kd.append('x')
+            else:
+                kd.append('.')
+        return ''.join(kd)
 
 
 class TypedSetIterator:
@@ -187,16 +195,12 @@ class TypedSetIterator:
 def main():
     import random
     ss = TypedSet(INT64_TYPE, [int(random.random() * 99) for _ in range(10)], load_factor=0.5)
-    #print(list(ss))
-    kd = []
-    for x in ss.full:
-        if x:
-            kd.append('X')
-        else:
-            kd.append('.')
-    #print(''.join(kd))
-    #print(sum(1 for i in ss.full if i) / ss.n_slots)
+    print(list(ss))
+    print(sum(1 for i in ss.full if i) / ss.n_slots)
     for item in list(ss):
+        print(list(ss))
+        print(str(ss))
+        print('removing', item)
         ss.remove(item)
 
 
