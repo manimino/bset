@@ -3,18 +3,16 @@ implements a 2D array shaped set
 
 Needs a load factor of 10 or 20 to be space efficient (7x ~ 8x), but
 then the lookup speed is 20x slower than python set().
-
 """
 
-from smolset.constants import DTYPE_TO_ARRAY_TYPE
 from array import array
 
 
-class SubSet:
+class TypedSet:
 
-    def __init__(self, items=None, dtype=DTYPE_TO_ARRAY_TYPE['uint64'], nslots=1, load_factor=10):
+    def __init__(self, dtype, items=None, n_slots=1, load_factor=10):
         """
-        A SubSet is a basic implementation of set.
+        A TypedSet is a basic implementation of set.
         Added items are hashed modulo capacity to get a pos.
 
         If there are zero items at that pos:
@@ -30,8 +28,8 @@ class SubSet:
         # TODO because the remake is kinda expensive right
         # TODO rather have 1000 sub-sets of 1000 slots each than have 1 1M-slot set when rebuilding
         self.dtype = dtype
-        self.nslots = nslots
-        self.listy = [None] * self.nslots
+        self.n_slots = n_slots
+        self.listy = [None] * self.n_slots
         self.size = 0
         self.load_factor = load_factor
         if items is not None:
@@ -43,7 +41,7 @@ class SubSet:
             return
         if self._full():
             self._expand()
-        pos = hash(item) % self.nslots
+        pos = hash(item) % self.n_slots
         if self.listy[pos] is None:
             self.listy[pos] = item
         elif isinstance(self.listy[pos], array):
@@ -53,7 +51,7 @@ class SubSet:
         self.size += 1
 
     def remove(self, item):
-        pos = hash(item) % self.nslots
+        pos = hash(item) % self.n_slots
         if self.listy[pos] is None:
             raise KeyError(item)
         elif isinstance(self.listy[pos], array):
@@ -71,32 +69,32 @@ class SubSet:
             self._shrink()
 
     def _copy_from(self, other):
-        self.nslots = other.nslots
+        self.n_slots = other.n_slots
         self.listy = other.listy
         self.size = other.size
 
     def _full(self) -> bool:
-        return self.size / self.nslots > self.load_factor
+        return self.size / self.n_slots > self.load_factor
 
     def _expand(self):
         """Increase capacity. Rehashes all items."""
-        if self.nslots < 10000:
-            new_size = self.nslots * 10
+        if self.n_slots < 10000:
+            new_size = self.n_slots * 10
         else:
-            new_size = int(self.nslots * 2.5)
-        other = SubSet(self, self.dtype, new_size, self.load_factor)
+            new_size = int(self.n_slots * 2.5)
+        other = TypedSet(self.dtype, items=self, n_slots=new_size, load_factor=self.load_factor)
         self._copy_from(other)
 
     def _sparse(self):
-        return self.size / self.nslots < 0.05  # todo tune this
+        return self.size / self.n_slots < 0.05  # todo tune this
 
     def _shrink(self):
         """Decrease capacity. Rehashes all items."""
-        other = SubSet(self, self.dtype, max(self.nslots // 10, 1))
+        other = TypedSet(self.dtype, items=self, n_slots=max(self.n_slots // 10, 1))
         self._copy_from(other)
 
     def __contains__(self, item):
-        pos = hash(item) % self.nslots
+        pos = hash(item) % self.n_slots
         if self.listy[pos] is None:
             return False
         elif isinstance(self.listy[pos], array):
@@ -105,29 +103,29 @@ class SubSet:
             return self.listy[pos] == item
 
     def __iter__(self):
-        return SubSetIterator(self)
+        return TypedSetIterator(self)
 
     def __len__(self):
         return self.size
 
 
-class SubSetIterator:
+class TypedSetIterator:
 
-    def __init__(self, subset):
-        self.subset = subset
+    def __init__(self, tset):
+        self.tset = tset
         self.pos = 0
         self.arr_pos = 0
 
     def __next__(self):
         item = None
         while item is None:
-            if self.pos == len(self.subset.listy):
+            if self.pos == len(self.tset.listy):
                 raise StopIteration
 
-            if self.subset.listy[self.pos] is None:
+            if self.tset.listy[self.pos] is None:
                 self.pos += 1
-            elif isinstance(self.subset.listy[self.pos], array):
-                arr = self.subset.listy[self.pos]
+            elif isinstance(self.tset.listy[self.pos], array):
+                arr = self.tset.listy[self.pos]
                 if self.arr_pos == len(arr):
                     self.arr_pos = 0
                     self.pos += 1
@@ -135,19 +133,17 @@ class SubSetIterator:
                     item = arr[self.arr_pos]
                     self.arr_pos += 1
             else:
-                item = self.subset.listy[self.pos]
+                item = self.tset.listy[self.pos]
                 self.pos += 1
         return item
 
 
 def main():
     import random
-    ss = SubSet(int(random.random() * 10) for _ in range(10))
-    #print('======== FULL ========')
-    #print(list(ss))
+    ss = TypedSet(int(random.random() * 10) for _ in range(10))
     for item in list(ss):
         ss.remove(item)
-    #print('======= EMPTY =========')
-    #print('remaining:', list(ss))
 
-main()
+
+if __name__ == '__main__':
+    main()

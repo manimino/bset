@@ -1,8 +1,30 @@
-# smolset
-A memory-efficient Python hashset
+# bset
 
-Python's `set` is great but very expensive on RAM. A `set` of 1000 integers is 64,984 bytes - over 64 bytes per integer.
+=== WARNING BETA, most of this readme is aspirational design stuff (i.e. not reality yet) ===
 
-A `smolset` of integers is 10,000 bytes, a 6x memory saving. Basic operations such as `add` are also faster probably.
+A memory-efficient Python hashset. Drop-in replacement for `set`.
 
-`smolset`
+*You've tried all the rest, now try the bset.*
+
+`pip install bset`
+
+```
+from bset import bset
+bset([1, 0.5, 'ascii', 'ʊռɨƈօɖɛ🎉'])
+```
+
+Supports any type. Optimized on `int`, `float`, and `string`; anything else just gets thrown in a regular `set`.
+
+You can `add()`, `remove()`, `intersect()`, `union()`. Supports iteration and of course you can (`x in bset`).
+🎉🎉
+### Compared with Python set()
+
+Bset works best for large sets (over 1000 items). 
+
+RAM size vs. set: 6x smaller on numbers, ~10x smaller on strings.
+
+`add()` speed: 2x faster
+
+`x in bset`, when False: 2x faster (uses a bloom filter)
+
+`x in bset`, when True: 10x ~ 30x slower than `set`. Ouch.
