@@ -40,6 +40,9 @@ http://www.idryman.org/blog/2017/08/06/learn-hash-table-the-hard-way-3/
 
 There are lots of hacks to diminish it, but they each cost during add, remove, or (worst) lookup.
 Robinhood, backsliding, cuckoo hashing, double hashing, quadratic probing... no free lunches.
+
+https://github.com/python/cpython/blob/main/Include/setobject.h
+https://github.com/python/cpython/blob/main/Objects/setobject.c
 """
 from array import array
 from bitarray import bitarray
@@ -90,11 +93,11 @@ class TypedSet:
 
     def _copy_from(self, other):
         self.full = other.full
-        self.arr = other.arr
-        self.size = other.size
+        self.deleted = other.deleted
         self.n_slots = other.n_slots
         self.mask = other.mask
-        self.deleted = other.deleted
+        self.arr = other.arr
+        self.size = other.size
 
     def _expand(self):
         """Increase capacity. Rehashes all items."""
@@ -137,7 +140,7 @@ class TypedSet:
         start = hash(item) & self.mask
         if self.full[start] and self.arr[start] == item:  # item found
             return start, True
-        elif not self.full[start]:  # empty (insertable)
+        if not self.full[start]:  # empty (insertable)
             return start, False
         # full and didn't match... so we start probing
         p = start+1
@@ -150,7 +153,10 @@ class TypedSet:
                 return p, True
             if p == start:
                 # prevent infinite loop
-                raise Exception("Insertion failed. Don't specify a load_factor above 1 next time.")
+                # if we're here, they probably specified a load factor > 1, the tricky devils
+                self._expand()
+                start = hash(item) & self.mask
+                p = start-1
             p += 1
 
     def __contains__(self, item):
@@ -194,7 +200,7 @@ class TypedSetIterator:
 
 def main():
     import random
-    ss = TypedSet(INT64_TYPE, [int(random.random() * 99) for _ in range(10)], load_factor=0.5)
+    ss = TypedSet(INT64_TYPE, [int(random.random() * 99) for _ in range(10)], load_factor=1.5)
     print(list(ss))
     print(sum(1 for i in ss.full if i) / ss.n_slots)
     for item in list(ss):
@@ -207,3 +213,4 @@ def main():
 if __name__ == '__main__':
     for i in range(100):
         main()
+        print("\n\n\n")

@@ -39,7 +39,7 @@ def make_bset(n, load_factor):
 
 
 def main():
-    for exp in range(3, 7):
+    for exp in range(3, 8):
         n = 10**exp
         t0 = time.time()
         v, junk1 = make_bset(n, load_factor=16)
