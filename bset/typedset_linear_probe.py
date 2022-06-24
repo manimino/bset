@@ -155,8 +155,8 @@ class TypedSet:
                 # prevent infinite loop
                 # if we're here, they probably specified a load factor > 1, the tricky devils
                 self._expand()
-                start = hash(item) & self.mask
-                p = start-1
+                start = (hash(item) & self.mask) - 1  # this could be -1, which is ok. expand prevented another loop.
+                p = start
             p += 1
 
     def __contains__(self, item):
