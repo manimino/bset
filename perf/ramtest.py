@@ -1,12 +1,13 @@
-from bset.typedset_chaining import TypedSet
+from bset.typedset_linear_probe import TypedSet
 from bset.dtypes import INT64_TYPE
-
+from cykhash import Int64Set
 from array import array
 from bitarray import bitarray
 import random
 import dataclasses
 import time
 from pympler.asizeof import asizeof
+from sys import getsizeof
 
 
 @dataclasses.dataclass
@@ -20,32 +21,38 @@ def make_a_thing():
 
 def make_set(n=1):
     s = set()
-    ls = []
+    g = 10**40
     for i in range(n):
-        t = make_a_thing()
-        s.add(id(t))
-        ls.append(t)
-    return s, ls
+        s.add(int(random.random()*10**10) + g)
+    return s
 
 
 def make_bset(n, load_factor):
     s = TypedSet(INT64_TYPE, load_factor=load_factor)
-    ls = []
+    g = 10**40
     for i in range(n):
-        t = make_a_thing()
-        s.add(id(t))
-        ls.append(t)
-    return s, ls
+        s.add(int(random.random()*10**10) + g)
+    return s
+
+
+def make_cykset(n):
+    s = Int64Set()
+    g = 10**10
+    for i in range(n):
+        s.add(int(random.random()*10**10) + g)
+    return s
 
 
 def main():
     for exp in range(3, 8):
         n = 10**exp
         t0 = time.time()
-        v, junk1 = make_bset(n, load_factor=16)
+        #v = make_bset(n, load_factor=16)
+        v = make_cykset(n)
         t1 = time.time()
-        s, junk2 = make_set(n)
+        s = make_set(n)
         t2 = time.time()
+
         build_v = t1-t0
         build_s = t2-t1
         ratio = asizeof(v) / asizeof(s)
@@ -61,7 +68,7 @@ def main():
         """
         # check lookups
         lookies = set()
-        for i in s:
+        for i in v:
             lookies.add(i)
             if len(lookies) > 100:
                 break
@@ -97,9 +104,10 @@ def main():
         print('set add:', t2-t1)
         """
 
-        print('ratio', round(1/ratio, 3))
-        print('capacity', v.n_slots)
-        print('fillrate', round(len(v) / v.n_slots, 3))
+        print('size improvement', round(1/ratio, 3))
+        print('build slowdown', build_v / build_s)
+        #print('capacity', v.n_slots)
+        #print('fillrate', round(len(v) / v.n_slots, 3))
         # print(len(v), len(s))
         # print(ratio)
 

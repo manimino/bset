@@ -1,30 +1,20 @@
 # bset
 
-=== WARNING BETA, most of this readme is aspirational design stuff (i.e. not reality yet) ===
+Making a set of `int`s in Python takes some 60 bytes per entry, which is absurd. An int is 4 bytes. 
 
-A memory-efficient Python hashset. Drop-in replacement for `set`.
+This project implements two hashsets. One uses separate chaining and gets a 7-8x memory usage improvement.
+The other uses linear probing and gets a 3x-4x improvement (depending on load factor).
 
-*You've tried all the rest, now try the bset.*
+Both are slower on build and access time, versus the Python `set` implementation. 
+They are pure-Python; converting them to cython could help.
 
-`pip install bset`
+### Status
 
-```
-from bset import bset
-bset([1, 0.5, 'ascii', 'ʊռɨƈօɖɛ🎉'])
-```
+Development paused. 
 
-Supports any type. Optimized on `int`, `float`, and `string`; anything else just gets thrown in a regular `set`.
+[tighthash](https://github.com/realead/tighthash) and [cykhash](https://github.com/realead/cykhash) address this problem
+already. It is unlikely that this implementation will outperform those by any significant amount, as the approach
+here is similar. Just use cykhash, it's great.
 
-You can `add()`, `remove()`, `intersect()`, `union()`. Supports iteration and of course you can (`x in bset`).
-🎉🎉
-### Compared with Python set()
-
-Bset works best for large sets (over 1000 items). 
-
-RAM size vs. set: 6x smaller on numbers, ~10x smaller on strings.
-
-`add()` speed: 2x faster
-
-`x in bset`, when False: 2x faster (uses a bloom filter)
-
-`x in bset`, when True: 10x ~ 30x slower than `set`. Ouch.
+Cykhash is excellent. Maybe a [abseil's swiss table](https://abseil.io/about/design/swisstables) could surpass it,
+but not by much.

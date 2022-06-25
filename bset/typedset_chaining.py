@@ -29,6 +29,7 @@ class TypedSet:
         # TODO rather have 1000 sub-sets of 1000 slots each than have 1 1M-slot set when rebuilding
         self.dtype = dtype
         self.n_slots = n_slots
+        self.mask = self.n_slots -1
         self.listy = [None] * self.n_slots
         self.size = 0
         self.load_factor = load_factor
@@ -41,7 +42,7 @@ class TypedSet:
             return
         if self._full():
             self._expand()
-        pos = hash(item) % self.n_slots
+        pos = item & self.mask
         if self.listy[pos] is None:
             self.listy[pos] = item
         elif isinstance(self.listy[pos], array):
@@ -51,7 +52,7 @@ class TypedSet:
         self.size += 1
 
     def remove(self, item):
-        pos = hash(item) % self.n_slots
+        pos = hash(item) & self.mask
         if self.listy[pos] is None:
             raise KeyError(item)
         elif isinstance(self.listy[pos], array):
@@ -72,21 +73,19 @@ class TypedSet:
         self.n_slots = other.n_slots
         self.listy = other.listy
         self.size = other.size
+        self.mask = other.mask
 
     def _full(self) -> bool:
         return self.size / self.n_slots > self.load_factor
 
     def _expand(self):
         """Increase capacity. Rehashes all items."""
-        if self.n_slots < 10000:
-            new_size = self.n_slots * 10
-        else:
-            new_size = int(self.n_slots * 2.5)
+        new_size = self.n_slots * 2
         other = TypedSet(self.dtype, items=self, n_slots=new_size, load_factor=self.load_factor)
         self._copy_from(other)
 
     def _sparse(self):
-        return self.size / self.n_slots < 0.05  # todo tune this
+        return self.size / self.n_slots < 0.1
 
     def _shrink(self):
         """Decrease capacity. Rehashes all items."""
@@ -94,7 +93,7 @@ class TypedSet:
         self._copy_from(other)
 
     def __contains__(self, item):
-        pos = hash(item) % self.n_slots
+        pos = hash(item) & self.mask
         if self.listy[pos] is None:
             return False
         elif isinstance(self.listy[pos], array):

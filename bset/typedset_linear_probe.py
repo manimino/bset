@@ -72,9 +72,10 @@ class TypedSet:
                 self.add(item)
 
     def add(self, item):
-        pos, found = self._look_for_next_empty_or_item_when_adding(item)
+        _, found = self._look_for_item_or_untouched_slot(item)
         if found:
             return
+        pos = self._find_empty_slot_to_add_item(item)
         self.full[pos] = True
         self.arr[pos] = item
         self.size += 1
@@ -82,7 +83,7 @@ class TypedSet:
             self._expand()
 
     def remove(self, item):
-        delete_pos, found = self._look_for_next_empty_or_item(item)
+        delete_pos, found = self._look_for_item_or_untouched_slot(item)
         if not found:
             raise KeyError(item)
         self.full[delete_pos] = False
@@ -114,9 +115,8 @@ class TypedSet:
         other = TypedSet(self.dtype, items=self, n_slots=new_size, load_factor=self.load_factor)
         self._copy_from(other)
 
-    def _look_for_next_empty_or_item(self, item=None) -> tuple[int, bool]:
-        # for contains() checks and removing
-        start = hash(item) & self.mask
+    def _look_for_item_or_untouched_slot(self, item) -> tuple[int, bool]:
+        start = item & self.mask
         if self.full[start] and self.arr[start] == item:  # item found
             return start, True
         if not self.full[start] and not self.deleted[start]:  # empty
@@ -135,32 +135,31 @@ class TypedSet:
                 return p, False
             p += 1
 
-    def _look_for_next_empty_or_item_when_adding(self, item=None) -> tuple[int, bool]:
-        # only used when adding. Same logic, just that it doesn't care about the 'deleted' flag.
-        start = hash(item) & self.mask
-        if self.full[start] and self.arr[start] == item:  # item found
-            return start, True
-        if not self.full[start]:  # empty (insertable)
-            return start, False
-        # full and didn't match... so we start probing
-        p = start+1
+    def _find_empty_slot_to_add_item(self, item) -> int:
+        """
+        Starting at the hash point, probe for an empty slot. It can be a slot
+        we've deleted from.
+
+        If there are no empty slots, expand the hashset and try again.
+        That way this never fails - it's guaranteed to return the position of an empty slot.
+        """
+        start = item & self.mask
+        if not self.full[start]:
+            return start
+        p = start + 1
         while True:
             if p == self.n_slots:
                 p = 0
-            if not self.full[p]:  # empty
-                return p, False
-            elif self.arr[p] == item:  # item found
-                return p, True
+            if not self.full[p]:
+                return p
             if p == start:
-                # prevent infinite loop
-                # if we're here, they probably specified a load factor > 1, the tricky devils
+                # all full! we need to expand.
                 self._expand()
-                start = (hash(item) & self.mask) - 1  # this could be -1, which is ok. expand prevented another loop.
-                p = start
+                p = (item & self.mask) - 1
             p += 1
 
     def __contains__(self, item):
-        _, is_item = self._look_for_next_empty_or_item(item)
+        _, is_item = self._look_for_item_or_untouched_slot(item)
         return is_item
 
     def __iter__(self):
